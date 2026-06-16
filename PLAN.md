@@ -2,8 +2,7 @@
 
 # RTSP Virtual Camera
 
-> Goal: Expose an RTSP stream as a native host machine webcam that is detectable by where-ever this streams gets captured, browsers (WebRTC), desktop applications, and proprietary software.
-> This will running in the background as windows service and connect and capture the stream out of RTSP url from any host.
+> Goal: Expose an RTSP stream as a native Windows webcam that is detectable by browsers (WebRTC), desktop applications, and proprietary software.
 
 ---
 
@@ -11,22 +10,80 @@
 
 This project should be built **vertically**, not horizontally.
 
-We avoid designing a large architecture up front.
+Avoid designing a large architecture up front.
 
-Instead, every milestone must produce a working executable that can be manually tested.
+Every milestone must produce a working executable that can be manually tested on a Windows VM.
 
 No IPC.
-single Windows Service runs in background, installed with admin supper admin kernal level privillage.
-No Shared Memory. we can loss stream not a problem
+No Shared Memory.
+No Kernel driver.
 
 Those are optimization steps and should only be introduced after a working virtual camera exists.
 
 ---
 
+# Architecture
+
+```
+Host machine (camera source)
+    │
+    ├── mediamtx (RTSP server)
+    │       publishes rtsp://host-ip/live
+    │
+    └── camera / screen capture / any RTSP source
+              │
+              │  RTSP over network
+              ▼
+Windows machine (runs rtspcam)
+    │
+    ├── rtspcam.exe (Windows Service / daemon)
+    │       connects to rtsp://host-ip/live
+    │       exposes as virtual camera
+    │
+    └── Media Foundation Virtual Camera
+              │
+              ▼
+         Chrome / Teams / OBS / any app
+```
+
+The RTSP server runs on the machine that **has the camera**.
+The Windows machine runs the app — it connects to the RTSP URL and exposes it as a local webcam.
+
+---
+
+# Development Workflow
+
+```
+macOS (NeoVim)                        Host machine
+    │                                     │
+    ├── develop / test locally            ├── (optional) run mediamtx + ffmpeg
+    │   (AppleClang + FFmpeg)             │   as test RTSP source
+    │                                     │
+    └── cross-compile rtspcam.exe ────────┘
+              │
+              ▼
+    Windows VM (test target)
+              │
+              ├── rtspcam.exe --url rtsp://host-ip/live
+              │
+              └── verify in Chrome via getUserMedia()
+```
+
+- Write code on macOS or any dev machine.
+- Run mediamtx on the host (or anywhere on network) as the RTSP source.
+- Build Windows `.exe` with MinGW-w64 cross-compiler.
+- Transfer `.exe` to Windows VM.
+- Test `rtspcam.exe` pointing at the host's RTSP URL.
+- Validate in Chrome via `navigator.mediaDevices.getUserMedia()`.
+
+---
+
 # Target Platforms
 
-- Windows 11 ARM64
-- Windows 11 x64
+- Windows 11 ARM64 (run on VM)
+- Windows 11 x64 (run on VM)
+
+Build host: macOS (Apple Silicon)
 
 Development language:
 
@@ -36,9 +93,37 @@ Build system:
 
 - CMake
 
+Cross-compiler:
+
+- MinGW-w64 (arm64 + x64)
+
 IDE:
 
-- Neo Vim
+- Neo Vim (macOS)
+
+---
+
+# RTSP Test Server
+
+Run [mediamtx](https://github.com/bluenviron/mediamtx) on the **host machine** (the one with the camera), or any machine on the network that has an RTSP source:
+
+```
+# On the host machine:
+mediamtx
+# publishes at rtsp://host-ip:8554/live
+
+# Push a test video into it (e.g. a looped test pattern):
+ffmpeg -re -f lavfi -i testsrc2=size=1920x1080:rate=30 \
+       -c:v libx264 -tune zerolatency -f rtsp rtsp://host-ip:8554/live
+```
+
+Then on the Windows VM:
+
+```
+rtspcam.exe --url rtsp://host-ip:8554/live
+```
+
+Or use a real IP camera / any RTSP source on the network.
 
 ---
 
@@ -141,18 +226,17 @@ Use FFmpeg.
 Deliverables:
 
 ```
-rtspcam.exe --url rtsp://127.0.0.1/live
+rtspcam.exe --url rtsp://host-ip/live
 ```
+
+Test: mediamtx runs on host machine, rtspcam connects to it from Windows VM.
 
 Output:
 
 ```
 Connected
-
 Codec: H264
-
 Resolution: 1920x1080
-
 FPS: 30
 ```
 
@@ -357,21 +441,22 @@ Windows Camera Stack
 ```
 rtspcam/
 
-src/
+    CMakeLists.txt
+    PLAN.md
 
-    main.cpp
+    cmake/
+        toolchain-x86_64-w64-mingw32.cmake
+        toolchain-aarch64-w64-mingw32.cmake
 
-    rtsp/
+    src/
 
-    decoder/
+        main.cpp
 
-    camera/
+        rtsp/
 
-include/
+        decoder/
 
-tests/
-
-docs/
+        camera/
 ```
 
 Keep it intentionally small.
@@ -393,19 +478,48 @@ Avoid premature abstraction.
 
 ---
 
+# Build Setup (macOS → Windows cross-compile)
+
+## Prerequisites
+
+```sh
+brew install mingw-w64 ffmpeg pkg-config
+```
+
+## Build
+
+```sh
+cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-x86_64-w64-mingw32.cmake
+cmake --build build
+```
+
+Output: `build/rtspcam.exe` → transfer to Windows VM.
+
+---
+
 # Dependencies
 
 Required:
 
-- FFmpeg
+- FFmpeg (for RTSP client + decoder)
 - Windows SDK
 - Media Foundation
+
+Windows-only (bundled with SDK):
+
+- DirectShow
+- DShow header `ks.h`, `ksmedia.h`
 
 Optional (later):
 
 - fmt
 - spdlog
 - nlohmann/json
+
+## macOS (development only)
+
+- FFmpeg via Homebrew (for building/testing RTSP and decoder locally)
+- AppleClang (system compiler)
 
 ---
 
