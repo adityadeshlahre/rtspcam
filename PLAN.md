@@ -2,7 +2,7 @@
 
 # RTSP Virtual Camera
 
-> Goal: Expose an RTSP stream as a native Windows webcam that is detectable by browsers (WebRTC), desktop applications, and proprietary software.
+> Goal: Expose an RTSP stream as a native Windows webcam that appears in **Device Manager** and is detectable by browsers (WebRTC), desktop applications, and proprietary software.
 
 ---
 
@@ -13,12 +13,6 @@ This project should be built **vertically**, not horizontally.
 Avoid designing a large architecture up front.
 
 Every milestone must produce a working executable that can be manually tested on a Windows VM.
-
-No IPC.
-No Shared Memory.
-No Kernel driver.
-
-Those are optimization steps and should only be introduced after a working virtual camera exists.
 
 ---
 
@@ -36,18 +30,26 @@ Host machine (camera source)
               ▼
 Windows machine (runs rtspcam)
     │
-    ├── rtspcam.exe (Windows Service / daemon)
+    ├── rtspcam.exe (user-mode Windows Service)
     │       connects to rtsp://host-ip/live
-    │       exposes as virtual camera
+    │       decodes frames → NV12
+    │       sends frames to driver via IOCTL
+    │       logs to %APPDATA%/rtspcam/main.log
     │
-    └── Media Foundation Virtual Camera
+    ├── rtspcam.sys (kernel-mode AVStream driver)
+    │       registers as "Virtual RTSP Camera"
+    │       appears in Device Manager under "Cameras"
+    │       receives NV12 frames from user-mode service
+    │       exposes them as a standard video capture device
+    │
+    └── Any app (Chrome / Teams / OBS / Camera app)
               │
               ▼
-         Chrome / Teams / OBS / any app
+         sees it as a real camera in Device Manager
 ```
 
 The RTSP server runs on the machine that **has the camera**.
-The Windows machine runs the app — it connects to the RTSP URL and exposes it as a local webcam.
+The Windows machine runs rtspcam as a Windows Service + kernel driver.
 
 ---
 
@@ -56,74 +58,110 @@ The Windows machine runs the app — it connects to the RTSP URL and exposes it 
 ```
 macOS (NeoVim)                        Host machine
     │                                     │
-    ├── develop / test locally            ├── (optional) run mediamtx + ffmpeg
-    │   (AppleClang + FFmpeg)             │   as test RTSP source
+    ├── develop RTSP / decoder            ├── run mediamtx + ffmpeg
+    │   test locally (AppleClang)         │   as test RTSP source
     │                                     │
     └── cross-compile rtspcam.exe ────────┘
               │
               ▼
     Windows VM (test target)
               │
-              ├── rtspcam.exe --url rtsp://host-ip/live
+              ├── build driver on VM (MSVC + WDK)
+              │   or cross-compile .sys from macOS
               │
-              └── verify in Chrome via getUserMedia()
+              ├── enable test signing:
+              │   bcdedit /set testsigning on
+              │
+              ├── install driver:
+              │   sc create rtspcam ... + devcon install
+              │
+              ├── install service:
+              │   rtspcam.exe --install --url rtsp://host-ip/live
+              │
+              ├── verify in Device Manager:
+              │   "Virtual RTSP Camera" under "Cameras"
+              │
+              └── check logs:
+                  %APPDATA%/rtspcam/main.log
 ```
 
-- Write code on macOS or any dev machine.
-- Run mediamtx on the host (or anywhere on network) as the RTSP source.
-- Build Windows `.exe` with MinGW-w64 cross-compiler.
-- Transfer `.exe` to Windows VM.
-- Test `rtspcam.exe` pointing at the host's RTSP URL.
-- Validate in Chrome via `navigator.mediaDevices.getUserMedia()`.
+---
+
+# Build Strategy
+
+## Windows Driver (rtspcam.sys)
+
+Must be built with MSVC + WDK (Windows Driver Kit).
+
+Build on the Windows VM directly, or use MSVC cross-compiler from macOS.
+
+Requires:
+- Visual Studio 2022 Build Tools
+- Windows Driver Kit (WDK)
+- Enterprise WDK (for command-line builds)
+
+```
+# On Windows VM:
+cmake -B build-driver -DDRIVER=ON
+cmake --build build-driver
+# Output: build-driver/rtspcam.sys
+```
+
+## User-mode service (rtspcam.exe)
+
+Cross-compile from macOS with MinGW-w64:
+
+```
+brew install mingw-w64 ffmpeg pkg-config
+
+cmake -B build-x64 \
+  -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-x86_64-w64-mingw32.cmake
+cmake --build build-x64
+# Output: build-x64/rtspcam.exe
+```
+
+## Local macOS dev build (RTSP/decoder only)
+
+```
+cmake -B build && cmake --build build
+./build/rtspcam --console --url rtsp://host-ip/live
+```
 
 ---
 
 # Target Platforms
 
-- Windows 11 ARM64 (run on VM)
-- Windows 11 x64 (run on VM)
+- Windows 11 ARM64
+- Windows 11 x64
 
-Build host: macOS (Apple Silicon)
+Build host (user-mode): macOS (Apple Silicon) with MinGW-w64
+Build host (driver): Windows VM with MSVC + WDK
 
-Development language:
-
-- C++20
-
-Build system:
-
-- CMake
-
-Cross-compiler:
-
-- MinGW-w64 (arm64 + x64)
-
-IDE:
-
-- Neo Vim (macOS)
+Languages: C++20 (user-mode), C (kernel-mode driver)
 
 ---
 
 # RTSP Test Server
 
-Run [mediamtx](https://github.com/bluenviron/mediamtx) on the **host machine** (the one with the camera), or any machine on the network that has an RTSP source:
+Run [mediamtx](https://github.com/bluenviron/mediamtx) on the **host machine**:
 
 ```
-# On the host machine:
+# On the host:
 mediamtx
 # publishes at rtsp://host-ip:8554/live
 
-# Push a test video into it (e.g. a looped test pattern):
+# Push a test pattern:
 ffmpeg -re -f lavfi -i testsrc2=size=1920x1080:rate=30 \
        -c:v libx264 -tune zerolatency -f rtsp rtsp://host-ip:8554/live
 ```
 
-Then on the Windows VM:
+On the Windows VM:
 
 ```
-rtspcam.exe --url rtsp://host-ip:8554/live
+rtspcam.exe --console --url rtsp://host-ip:8554/live
 ```
 
-Or use a real IP camera / any RTSP source on the network.
+Or use any real IP camera as the RTSP source.
 
 ---
 
@@ -135,304 +173,305 @@ Or use a real IP camera / any RTSP source on the network.
 - Authentication manager
 - Recording
 - Streaming server
+- WHQL certification (test signing is fine)
 
 ---
 
 # MVP
 
-A console application that:
+A Windows Service + Kernel Driver that:
 
 ```
 RTSP
     │
     ▼
-FFmpeg
+FFmpeg (receive + decode)
     │
     ▼
-Media Foundation Virtual Camera
+NV12 frame
+    │  IOCTL
+    ▼
+AVStream Kernel Driver
+    │
+    ├── Visible in Device Manager
     │
     ▼
-Chrome / Edge / Teams / Proprietary Apps
+Chrome / Edge / Teams / OBS / Camera App
 ```
 
-If Chrome can successfully display the stream via:
+If Chrome can display the stream via:
 
 ```
 navigator.mediaDevices.getUserMedia()
 ```
 
-then Phase 1 is complete.
+AND the device appears under "Cameras" in Device Manager, then the MVP is complete.
 
 ---
 
-# Milestone 1
+# Milestone 1 — Bootstrap ✓
 
-## Project Bootstrap
+## Done
 
-Repository:
+- `CMakeLists.txt` — C++20, compiles cleanly
+- `src/main.cpp` — exits with 0
+- Cross-compile toolchain files for MinGW-w64
+
+---
+
+# Milestone 2 — RTSP Client ✓
+
+## Done
+
+- `RTSPClient` class using FFmpeg
+- Connects to `rtsp://...`, reads packets
+- Reconnect with backoff
+- Prints codec, resolution, FPS to stdout
+
+---
+
+# Milestone 3 — Logger + Service Skeleton
+
+## Logger
+
+Implement a simple file logger:
 
 ```
-rtspcam/
-
-    CMakeLists.txt
-
-    README.md
-
-    docs/
-
-    include/
-
-    src/
-
-    third_party/
-
-    tests/
+src/log/logger.h
+src/log/logger.cpp
 ```
+
+Writes to `%APPDATA%/rtspcam/main.log` (or `./rtspcam.log` on macOS for dev).
+
+Format:
+
+```
+[2026-06-20 14:30:01] [INFO]  Connected to rtsp://host-ip/live
+[2026-06-20 14:30:01] [INFO]  Codec: H264, 1920x1080 @ 30fps
+[2026-06-20 14:30:05] [ERROR] Connection lost, reconnecting...
+[2026-06-20 14:30:07] [INFO]  Reconnected
+```
+
+Levels: DEBUG, INFO, WARN, ERROR.
+
+## Windows Service Skeleton
+
+Wrap the app in a Windows Service entry point:
+
+```
+src/service/service.h
+src/service/service.cpp
+src/service/service_install.cpp
+```
+
+- `ServiceMain` — entry point called by SCM
+- `ServiceCtrlHandler` — handle stop/shutdown
+- CLI: `--install`, `--uninstall`, `--console`, `--url`
+- On `--install`: registers with `CreateService()`
+- On start: reads URL from registry or CLI, runs the pipeline
+- Logs every service event (start, stop, crash)
+- Logger flushes on every write (crash-safe)
 
 Deliverables:
 
-- Builds successfully
-- CI passes
-- Empty executable runs
+```
+rtspcam.exe --install --url rtsp://host-ip/live
+net start rtspcam
+# service starts, logs to %APPDATA%/rtspcam/main.log
+
+rtspcam.exe --console --url rtsp://host-ip/live
+# runs in foreground for development
+```
 
 Success Criteria:
 
-```
-rtspcam.exe
-
-=> exits successfully
-```
+- Service installs, starts, stops cleanly
+- `main.log` contains startup entries
+- Uninstall removes the service
 
 ---
 
-# Milestone 2
+# Milestone 4 — Decoder
 
-## RTSP Client
+Decode RTSP packets into raw NV12 frames.
 
-Implement:
-
-```
-RTSPClient
-```
-
-Responsibilities:
-
-- connect
-- reconnect
-- timeout handling
-
-Use FFmpeg.
-
-Deliverables:
+Maintain latest frame only. No buffering.
 
 ```
-rtspcam.exe --url rtsp://host-ip/live
+src/decoder/decoder.h
+src/decoder/decoder.cpp
 ```
 
-Test: mediamtx runs on host machine, rtspcam connects to it from Windows VM.
-
-Output:
-
-```
-Connected
-Codec: H264
-Resolution: 1920x1080
-FPS: 30
-```
-
-No rendering.
-
-No decoding validation beyond receiving packets.
-
-Success Criteria:
-
-Stable connection for 10 minutes.
-
----
-
-# Milestone 3
-
-## Decoder
-
-Decode frames.
-
-Convert to:
-
-```
-NV12
-```
-
-Maintain latest frame only.
-
-No buffering.
+- Uses FFmpeg `avcodec` for H264/H265 decoding
+- Converts decoded frame to NV12 via `sws_scale`
+- Thread-safe: one writer (decoder), one reader (driver)
+- Logs frame count, resolution, fps every second
 
 Console output:
 
 ```
 Decoded frame #1200
-
 1920x1080
-
 NV12
-
 30 fps
 ```
 
 Success Criteria:
 
-Continuous decoding.
-
-No memory leaks.
+- Continuous decoding for 10 minutes
+- No memory leaks
+- All decode errors logged to `main.log`
 
 ---
 
-# Milestone 4
+# Milestone 5 — Kernel Driver (AVStream Virtual Camera)
 
-## Media Foundation Virtual Camera
+Build a kernel-mode AVStream driver that registers a virtual camera.
 
-Register:
-
-```
-Virtual RTSP Camera
-```
-
-No RTSP integration yet.
-
-Generate synthetic frames:
+This is the core differentiator — the camera appears in **Device Manager**.
 
 ```
-black background
+driver/
+    driver.h
+    driver.c
+    device.h
+    device.c
+    queue.h
+    queue.c
+    trace.h
+    inf/
+        rtspcam.inf       # driver installation file
+        rtspcam.cat       # signed catalog (test cert for now)
+```
 
-timestamp
+## Driver Responsibilities
 
-frame counter
+- Registers as a capture device using AVStream framework
+- Appears under "Cameras" in Device Manager as "Virtual RTSP Camera"
+- Creates a device interface that user-mode service can open
+- Accepts NV12 frames from user-mode via IOCTL
+- Provides frames to any app that opens the camera (Chrome, Teams, etc.)
+- Handles power management, PnP events, multiple concurrent viewers
 
-moving rectangle
+## User-mode → Driver Communication
+
+```
+rtspcam.exe                  rtspcam.sys
+    │                            │
+    ├── CreateFile() ──────────► ├── IRP_MJ_CREATE
+    ├── DeviceIoControl() ─────► ├── IOCTL_SEND_FRAME
+    │   (NV12 buffer)           │   (copy to AVStream pipeline)
+    └── CloseHandle() ─────────► ├── IRP_MJ_CLOSE
+```
+
+## Test Signing
+
+```
+# On Windows VM (one time):
+bcdedit /set testsigning on
+
+# Sign driver with test cert:
+certmgr.exe ...
+inf2cat.exe ...
+
+# Install:
+devcon.exe install rtspcam.inf root\rtspcam
+```
+
+## Synthetic Frames First
+
+Start with a test mode that generates synthetic frames internally
+(no RTSP needed yet) — just to prove the driver works:
+
+```
+black background + timestamp + frame counter
 ```
 
 Success Criteria:
 
-Camera appears in:
-
-- Camera App
-- Chrome
-- Edge
-- Teams
-- OBS
-- Proprietary applications
+- Device appears under "Cameras" in Device Manager
+- Camera App can open it (shows test pattern)
+- Chrome can enumerate it via `navigator.mediaDevices.enumerateDevices()`
+- All driver load/unload events logged to `main.log`
 
 ---
 
-# Milestone 5
+# Milestone 6 — Connect Decoder to Driver
 
-## Connect Decoder to Camera
-
-Replace synthetic frames.
+Replace synthetic frames with decoded RTSP frames.
 
 Pipeline:
 
 ```
-RTSP
-
-↓
-
-Decoder
-
-↓
-
-Virtual Camera
+rtspcam.exe (user-mode)
+    RTSP → Decoder → NV12 frame → IOCTL → rtspcam.sys (kernel)
+                                              │
+                                              ▼
+                                         AVStream pipeline
+                                              │
+                                              ▼
+                                         Chrome / Teams / etc
 ```
 
-No IPC.
-
-No services.
-
-Single process.
+- Decoder writes latest NV12 frame
+- Service sends it to driver via `DeviceIoControl`
+- Driver enqueues into AVStream capture pipeline
+- Frame queue in driver: latest frame only (no accumulation)
 
 Success Criteria:
 
-Open:
-
-https://webrtc.github.io/samples/src/content/getusermedia/gum/
-
-Select:
-
-```
-Virtual RTSP Camera
-```
-
-Live RTSP video must appear.
+- Device Manager shows "Virtual RTSP Camera"
+- Chrome displays live RTSP video via `getUserMedia()`
+- Teams detects it as a camera
+- All pipeline stats logged to `main.log`
 
 ---
 
-# Milestone 6
+# Milestone 7 — Robustness
 
-## Robustness
-
-Implement:
-
-- reconnect
-- packet loss recovery
-- stream restart
-- timeout detection
+- Auto-reconnect on RTSP disconnect (already partially done)
+- Packet loss recovery (FFmpeg's built-in error concealment)
+- Stream restart if decoder crashes
+- Timeout detection with interrupt callback
+- Watchdog: if no frames for 10 seconds, log and restart pipeline
+- Driver crash recovery: if `.sys` faults, service detects and reloads
+- Graceful service shutdown: sends black frame, then closes driver handle
 
 Stress test:
 
 ```
-disconnect ethernet
-
-reconnect
-
-camera continues automatically
+disconnect host network → wait → reconnect
+→ camera continues automatically
+→ Device Manager still shows the device
 ```
 
 ---
 
-# Milestone 7
+# Milestone 8 — Windows Service Finalization
 
-## Refactor
-
-Only after Milestone 5 succeeds.
-
-Split into:
-
-```
-RTSP Layer
-
-Camera Layer
-
-Application Layer
-```
-
-Introduce interfaces.
-
-No behavioral changes.
+- Service runs as `NT AUTHORITY\LocalService` (least privilege)
+- On startup: loads driver via `sc start`, waits for device arrival
+- On shutdown: sends black frames, stops driver cleanly
+- Registry: read URL, log level, reconnect params from `HKLM\Software\rtspcam`
+- Installer (WiX) bundles `.exe` + `.sys` + `.inf` + `.cat`
+- Uninstaller removes driver, service, and log files
 
 ---
 
-# Future Phase
+# Driver Signing (Production)
 
-Only after MVP works.
+For Device Manager visibility without test mode:
 
 ```
-Windows Service
+Development:   bcdedit /set testsigning on
+               Self-signed test certificate
 
-↓
-
-RTSP Decoder
-
-↓
-
-Shared Memory
-
-↓
-
-Camera Host
-
-↓
-
-Windows Camera Stack
+Production:    EV Code Signing Certificate (~$300/year)
+               Microsoft Hardware Dev Center submission
+               Attested signing via Azure DevOps (cheaper)
 ```
+
+Phase 1 uses test signing only.
 
 ---
 
@@ -440,7 +479,6 @@ Windows Camera Stack
 
 ```
 rtspcam/
-
     CMakeLists.txt
     PLAN.md
 
@@ -448,131 +486,126 @@ rtspcam/
         toolchain-x86_64-w64-mingw32.cmake
         toolchain-aarch64-w64-mingw32.cmake
 
-    src/
-
+    src/                          # user-mode service
         main.cpp
 
+        log/
+            logger.h
+            logger.cpp
+
         rtsp/
+            rtsp_client.h
+            rtsp_client.cpp
 
         decoder/
+            decoder.h
+            decoder.cpp
 
-        camera/
+        service/
+            service.h
+            service.cpp
+            service_install.cpp
+
+    driver/                       # kernel-mode driver
+        driver.c
+        driver.h
+        device.c
+        device.h
+        queue.c
+        queue.h
+        trace.h
+        inf/
+            rtspcam.inf
 ```
 
-Keep it intentionally small.
-
-Avoid premature abstraction.
+Keep it intentionally small. Add files only when a milestone requires them.
 
 ---
 
 # Coding Standards
 
-- C++20
+User-mode (C++20):
 - RAII everywhere
 - No global state
 - No macros except platform guards
-- Prefer std::expected/std::optional where appropriate
-- std::span instead of raw pointers
-- std::unique_ptr ownership by default
+- Prefer `std::expected` / `std::optional` where appropriate
+- `std::span` instead of raw pointers
+- `std::unique_ptr` ownership by default
 - Exceptions only at application boundaries
+- Every error path must be logged before returning
 
----
-
-# Build Setup (macOS → Windows cross-compile)
-
-## Prerequisites
-
-```sh
-brew install mingw-w64 ffmpeg pkg-config
-```
-
-## Build
-
-```sh
-cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-x86_64-w64-mingw32.cmake
-cmake --build build
-```
-
-Output: `build/rtspcam.exe` → transfer to Windows VM.
+Kernel-mode (C, with MSVC):
+- WDK coding conventions (__drv_ annotations, SAL)
+- No C++ exceptions
+- No STL
+- Pool tagging for memory tracking
+- Driver Verifier compliance from day one
 
 ---
 
 # Dependencies
 
-Required:
-
-- FFmpeg (for RTSP client + decoder)
+User-mode service:
+- FFmpeg (RTSP client + decoder)
 - Windows SDK
-- Media Foundation
 
-Windows-only (bundled with SDK):
+Kernel driver:
+- Windows Driver Kit (WDK)
+- AVStream library (built into WDK)
 
-- DirectShow
-- DShow header `ks.h`, `ksmedia.h`
+Tools:
+- MinGW-w64 (cross-compiler on macOS)
+- Visual Studio 2022 Build Tools (on Windows VM)
+- devcon.exe (driver installation testing)
 
-Optional (later):
-
-- fmt
-- spdlog
-- nlohmann/json
-
-## macOS (development only)
-
-- FFmpeg via Homebrew (for building/testing RTSP and decoder locally)
+macOS (development only):
+- FFmpeg via Homebrew
 - AppleClang (system compiler)
+
+---
+
+# Logging Specification
+
+```
+Path:  %APPDATA%/rtspcam/main.log
+       (falls back to ./rtspcam.log on macOS / dev)
+
+Format:
+[YYYY-MM-DD HH:MM:SS] [LEVEL] message
+
+Levels:
+DEBUG   - frame stats, verbose info
+INFO    - connection, reconnection, startup/shutdown
+WARN    - packet loss, decode glitches, minor errors
+ERROR   - connection failures, decode failures, crashes
+FATAL   - unhandled exceptions, service termination
+
+Behavior:
+- Append mode (never truncate)
+- Flush on every write (kernel buffer, no user-mode buffering)
+- Max file size: 10 MB (rotate to main.1.log, keep 3 archives)
+- Log level controlled by --verbose flag or registry
+```
 
 ---
 
 # Testing Strategy
 
-Every milestone must be independently runnable.
+Every milestone must be independently runnable on the Windows VM.
 
 Never merge code that cannot be manually verified.
 
 Expected progression:
 
 ```
-Milestone 1
-
-Build
-
-✓
-
-Milestone 2
-
-RTSP Connect
-
-✓
-
-Milestone 3
-
-Decode
-
-✓
-
-Milestone 4
-
-Virtual Camera
-
-✓
-
-Milestone 5
-
-RTSP → Camera
-
-✓
-
-Milestone 6
-
-Robustness
-
-✓
-
-Milestone 7
-
-Refactor
-
-✓
+M1  Bootstrap                 ✓
+M2  RTSP Client               ✓
+M3  Logger + Service          ⬚
+M4  Decoder                   ⬚
+M5  Kernel Driver (AVStream)  ⬚
+M6  Decoder → Driver          ⬚
+M7  Robustness                ⬚
+M8  Service Finalization      ⬚
 ```
 
 ---
@@ -583,7 +616,7 @@ Refactor
 
 The first objective is **not** to build a perfect framework.
 
-The first objective is to make Windows enumerate:
+The first objective is to make Windows enumerate in Device Manager:
 
 ```
 Virtual RTSP Camera
