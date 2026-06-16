@@ -1,8 +1,9 @@
 # PLAN.md
 
-# RTSP Virtual Camera for Windows
+# RTSP Virtual Camera
 
-> Goal: Expose an RTSP stream as a native Windows webcam that is detectable by browsers (WebRTC), desktop applications, and proprietary software.
+> Goal: Expose an RTSP stream as a native host machine webcam that is detectable by where-ever this streams gets captured, browsers (WebRTC), desktop applications, and proprietary software.
+> This will running in the background as windows service and connect and capture the stream out of RTSP url from any host.
 
 ---
 
@@ -15,8 +16,8 @@ We avoid designing a large architecture up front.
 Instead, every milestone must produce a working executable that can be manually tested.
 
 No IPC.
-No Windows Service.
-No Shared Memory.
+single Windows Service runs in background, installed with admin supper admin kernal level privillage.
+No Shared Memory. we can loss stream not a problem
 
 Those are optimization steps and should only be introduced after a working virtual camera exists.
 
@@ -43,15 +44,12 @@ IDE:
 
 # Non Goals (Phase 1)
 
-- Windows Service
 - Multi-camera support
 - Configuration UI
-- Installer
 - Audio
 - Authentication manager
 - Recording
 - Streaming server
-- Kernel mode driver
 
 ---
 
