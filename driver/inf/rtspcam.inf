@@ -1,0 +1,37 @@
+;
+; rtspcam.inf
+;
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = Camera
+ClassGuid   = {CA3E7AB9-B4C3-4CE6-8251-579EF449890E}
+Provider    = %ProviderString%
+DriverVer   = 06/23/2026,1.0.0.0
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[DefaultInstall]
+OptionDesc  = %DeviceDescription%
+CopyFiles   = @rtspcam.sys
+
+[DefaultInstall.Services]
+AddService  = rtspcam, 0x00000002, rtspcam_Service_Inst
+
+[DefaultUninstall]
+DelFiles    = @rtspcam.sys
+
+[DefaultUninstall.Services]
+DelService  = rtspcam, 0x200
+
+[rtspcam_Service_Inst]
+DisplayName    = %DeviceDescription%
+ServiceType    = 1
+StartType      = 3
+ErrorControl   = 1
+ServiceBinary  = %12%\rtspcam.sys
+
+[Strings]
+ProviderString      = "RTSPCam"
+DeviceDescription   = "Virtual RTSP Camera"
