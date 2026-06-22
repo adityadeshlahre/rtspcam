@@ -1,20 +1,22 @@
 #include "driver.h"
 
+extern "C"
 NTSTATUS PinCreate(PKSPIN Pin, PIRP Irp)
 {
     return STATUS_SUCCESS;
 }
 
+extern "C"
 void PinProcess(PKSPIN Pin, PKSPROCESSPIN_INDEXENTRY Index)
 {
-    DeviceExtension* ctx = (DeviceExtension*)Pin->KsDevice->Context;
+    auto ctx = (DeviceExtension*)Pin->KsDevice->Context;
 
     for (ULONG i = 0; i < Index->PinCount; i++) {
-        PKSPROCESSPIN processPin = &Index->Pins[i];
+        auto processPin = &Index->Pins[i];
         if (processPin->BytesUsed) continue;
 
-        PKSSTREAM_HEADER header = (PKSSTREAM_HEADER)processPin->StreamHeader;
-        PUCHAR data = (PUCHAR)processPin->Data;
+        auto header = (PKSSTREAM_HEADER)processPin->StreamHeader;
+        auto data = (PUCHAR)processPin->Data;
 
         if (processPin->FrameExtent >= ctx->FrameSize) {
             KIRQL irql;

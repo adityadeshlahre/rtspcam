@@ -20,8 +20,8 @@ static void InitDescriptors()
 
     PinInterface = KSINTERFACE_STANDARD_STREAMING;
 
-    static PKSDATARANGE ranges[] = { &VideoRange, NULL };
-    static PKSPIN_INTERFACE ifaces[] = { &PinInterface, NULL };
+    static PKSDATARANGE ranges[] = { &VideoRange, nullptr };
+    static PKSPIN_INTERFACE ifaces[] = { &PinInterface, nullptr };
 
     PinDesc.Dispatch = &PinDispatch;
     PinDesc.PinId = 0;
@@ -33,7 +33,7 @@ static void InitDescriptors()
     PinDesc.DataFlow = KSPIN_DATAFLOW_OUT;
     PinDesc.DataRanges = ranges;
     PinDesc.Interfaces = ifaces;
-    PinDesc.Mediums = NULL;
+    PinDesc.Mediums = nullptr;
     PinDesc.DataRangesCount = 1;
     PinDesc.InterfacesCount = 1;
     PinDesc.MediumsCount = 0;
@@ -54,6 +54,7 @@ static void InitDescriptors()
     DeviceDesc.FilterDescriptorsCount = 1;
 }
 
+extern "C"
 NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
     InitDescriptors();
