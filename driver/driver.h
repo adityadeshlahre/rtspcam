@@ -1,16 +1,28 @@
 /*
- * WDK 10.0.28000.0 ARM64 workarounds:
- * - CDECL on data declarations (e.g. "extern const GUID CDECL GUID_NULL")
- *   is valid C++ but invalid C. On ARM64 __cdecl is a no-op, so empty is safe.
- * - BOOL is not defined by ntdef.h in kernel mode on ARM64, but ks.h
- *   uses it as a function parameter type. Macro avoids redefinition conflict.
+ * WDK 10.0.28000.0 ARM64 C compilation workarounds:
+ * - CDECL: __cdecl on data (e.g. "extern const GUID CDECL GUID_NULL") is
+ *   invalid C. On ARM64 __cdecl is a no-op, so empty is safe.
+ * - BOOL/DWORD/BYTE/FLOAT: ntdef.h no longer pulls in windef.h in kernel
+ *   mode. Define as macros to satisfy ks.h/function prototypes.
  */
 #define CDECL
 #define BOOL int
+#define DWORD unsigned long
+#define BYTE unsigned char
+#define FLOAT float
 
 #include <ntddk.h>
 #include <ks.h>
-#include <ksmedia.h>
+
+/* ksmedia.h is broken in this WDK version on ARM64 (missing types,
+ * anonymous struct/union issues). Define only what we need.
+ * GUIDs are declared extern and resolved by ks.lib at link time. */
+
+extern const GUID KSDATAFORMAT_TYPE_VIDEO;
+extern const GUID KSDATAFORMAT_SUBTYPE_NV12;
+extern const GUID KSDATAFORMAT_SPECIFIER_VIDEOINFO2;
+extern const GUID PINNAME_VIDEO_CAPTURE;
+extern const GUID KSCATEGORY_VIDEO_CAMERA;
 
 #define POOL_TAG 'tprR'
 #define FRAME_WIDTH  1280
