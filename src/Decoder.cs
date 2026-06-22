@@ -10,7 +10,7 @@ public sealed class Decoder(ILogger logger) : IDisposable
     private int _width;
     private int _height;
 
-    public unsafe void Open(string codecName, int width, int height)
+    public unsafe void Open(string codecName, int width, int height, nint codecPar = 0)
     {
         _width = width;
         _height = height;
@@ -29,6 +29,9 @@ public sealed class Decoder(ILogger logger) : IDisposable
         _codecCtx = ffmpeg.avcodec_alloc_context3(codec);
         if (_codecCtx == null)
             throw new InvalidOperationException("Failed to allocate codec context");
+
+        if (codecPar != 0)
+            ffmpeg.avcodec_parameters_to_context(_codecCtx, (AVCodecParameters*)codecPar);
 
         ffmpeg.avcodec_open2(_codecCtx, codec, null);
 

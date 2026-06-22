@@ -8,11 +8,11 @@ public sealed class RtspClient(ILogger logger) : IDisposable
     private unsafe AVFormatContext* _ctx;
     private int _videoStream = -1;
 
-    public record StreamInfoData(int StreamIndex, string Codec, int Width, int Height, double Fps);
+    public record StreamInfoData(int StreamIndex, string Codec, int Width, int Height, double Fps, nint CodecPar);
 
     public StreamInfoData? StreamInfo { get; private set; }
 
-    public unsafe void Connect(string url, int timeoutSec = 10)
+    public unsafe void Connect(string url, string transport = "tcp", int timeoutSec = 10)
     {
         ffmpeg.avformat_network_init();
 
@@ -20,13 +20,12 @@ public sealed class RtspClient(ILogger logger) : IDisposable
         if (_ctx == null)
             throw new InvalidOperationException("Failed to alloc format context");
 
-        var tcpUrl = url.Contains('?')
-            ? url + "&rtsp_transport=tcp"
-            : url + "?rtsp_transport=tcp";
+        var query = url.Contains('?') ? '&' : '?';
+        var fullUrl = $"{url}{query}rtsp_transport={transport}&timeout={timeoutSec * 1000000}u&reconnect=1";
 
         fixed (AVFormatContext** pCtxPtr = &_ctx)
         {
-            var ret = ffmpeg.avformat_open_input(pCtxPtr, tcpUrl, null, null);
+            var ret = ffmpeg.avformat_open_input(pCtxPtr, fullUrl, null, null);
             if (ret < 0)
                 throw new InvalidOperationException(
                     $"Failed to open RTSP stream (error {ret})");
@@ -50,7 +49,7 @@ public sealed class RtspClient(ILogger logger) : IDisposable
                     : 30.0;
 
                 StreamInfo = new StreamInfoData(i, codecName,
-                    par->width, par->height, fps);
+                    par->width, par->height, fps, (nint)par);
                 break;
             }
         }

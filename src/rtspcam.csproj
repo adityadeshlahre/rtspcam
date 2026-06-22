@@ -6,11 +6,26 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-rtspcam-daa72647-cee9-49fb-9643-9f5d7a2c283d</UserSecretsId>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="FFmpeg.AutoGen" Version="8.1.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.9" />
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
   </ItemGroup>
+
+  <Target Name="CopyFfmpegDlls" AfterTargets="Publish" Condition="$(RuntimeIdentifier.StartsWith('win-'))">
+    <PropertyGroup>
+      <_FfmpegArch>$(RuntimeIdentifier.Substring(4))</_FfmpegArch>
+    </PropertyGroup>
+    <ItemGroup>
+      <_FfmpegDll Include="$(MSBuildProjectDirectory)/dependency/$(_FfmpegArch)/*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_FfmpegDll)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

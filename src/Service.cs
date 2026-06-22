@@ -41,13 +41,14 @@ public sealed class Service(
         using var decoder = new Decoder(logger);
         using var driver = new DriverIO(logger);
 
-        rtsp.Connect(url);
+        var transport = config.GetValue("RTSP:Transport", "tcp");
+        rtsp.Connect(url, transport);
 
         var info = rtsp.StreamInfo;
         logger.LogInformation("Connected: {Codec} {Width}x{Height} @ {Fps}fps",
             info.Codec, info.Width, info.Height, info.Fps);
 
-        decoder.Open(info.Codec, info.Width, info.Height);
+        decoder.Open(info.Codec, info.Width, info.Height, info.CodecPar);
         driver.Open();
 
         while (!ct.IsCancellationRequested)

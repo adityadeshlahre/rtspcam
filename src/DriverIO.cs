@@ -6,24 +6,27 @@ public sealed class DriverIO(ILogger logger) : IDisposable
 {
     private const string DevicePath = @"\\.\VirtualRTSPCamera";
     private const uint IoctlSendFrame = 0x80002000;
+    private const uint GenericReadWrite = 0xC0000000;
+    private const uint OpenExisting = 3;
+    private const uint FileAttributeNormal = 0x80;
 
-    private SafeHandle? _device;
+    private nint _device;
 
     public void Open()
     {
         _device = NativeMethods.CreateFile(
             DevicePath,
-            0xC0000000, // GENERIC_READ | GENERIC_WRITE
+            GenericReadWrite,
             0,
             nint.Zero,
-            3, // OPEN_EXISTING
-            0x80, // FILE_ATTRIBUTE_NORMAL
+            OpenExisting,
+            FileAttributeNormal,
             nint.Zero);
 
-        if (_device?.IsInvalid == true)
+        if (_device == new nint(-1))
         {
-            logger.LogWarning("Driver not available (device not found). Frames will not be sent.");
-            _device = null;
+            logger.LogWarning("Driver not available — device not found. Frames will not be sent.");
+            _device = nint.Zero;
             return;
         }
 
@@ -32,14 +35,15 @@ public sealed class DriverIO(ILogger logger) : IDisposable
 
     public unsafe void SendFrame(Nv12Frame frame)
     {
-        if (_device == null) return;
+        if (_device == nint.Zero) return;
 
         var totalSize = frame.Planes[0].Length + frame.Planes[1].Length + frame.Planes[2].Length;
         var buffer = new byte[totalSize];
 
         Buffer.BlockCopy(frame.Planes[0], 0, buffer, 0, frame.Planes[0].Length);
         Buffer.BlockCopy(frame.Planes[1], 0, buffer, frame.Planes[0].Length, frame.Planes[1].Length);
-        Buffer.BlockCopy(frame.Planes[2], 0, buffer, frame.Planes[0].Length + frame.Planes[1].Length, frame.Planes[2].Length);
+        Buffer.BlockCopy(frame.Planes[2], 0, buffer,
+            frame.Planes[0].Length + frame.Planes[1].Length, frame.Planes[2].Length);
 
         fixed (byte* pBuf = buffer)
         {
@@ -47,7 +51,7 @@ public sealed class DriverIO(ILogger logger) : IDisposable
                 _device,
                 IoctlSendFrame,
                 (nint)pBuf,
-                buffer.Length,
+                (uint)buffer.Length,
                 nint.Zero,
                 0,
                 out _,
@@ -55,15 +59,19 @@ public sealed class DriverIO(ILogger logger) : IDisposable
 
             if (!success)
             {
-                var err = Marshal.GetLastPInvokeError();
-                logger.LogWarning("Driver IOCTL failed: {Error}", err);
+                logger.LogWarning("Driver IOCTL failed: {Error}",
+                    Marshal.GetLastPInvokeError());
             }
         }
     }
 
     public void Dispose()
     {
-        _device?.Close();
+        if (_device != nint.Zero)
+        {
+            NativeMethods.CloseHandle(_device);
+            _device = nint.Zero;
+        }
         logger.LogInformation("Driver closed");
     }
 }
