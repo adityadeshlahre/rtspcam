@@ -16,13 +16,13 @@ if errorlevel 1 (
 
 set KITS=C:\Program Files (x86)\Windows Kits\10
 
-:: Find highest WDK version (numeric only)
+:: Prefer the last stable WDK over pre-release (10.0.28000.0)
 set WDKVER=
 for /f "delims=" %%d in ('dir "%KITS%\Include" /b /o-n 2^>nul') do (
-    echo %%d|findstr /r "^[0-9]" >nul && set WDKVER=%%d
-    if defined WDKVER goto found
+    echo %%d|findstr /r "^[0-9]" >nul
+    if not errorlevel 1 if not "%%d"=="10.0.28000.0" set WDKVER=%%d
+    if not errorlevel 1 if not "%%d"=="10.0.28000.0" goto found
 )
-set WDKVER=
 echo No WDK version found in %KITS%\Include
 exit /b 1
 
