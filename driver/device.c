@@ -1,9 +1,8 @@
 #include "driver.h"
 
-extern "C"
 NTSTATUS DeviceAdd(PKSDEVICE Device)
 {
-    auto ctx = (DeviceExtension*)ExAllocatePool2(
+    DeviceExtension* ctx = (DeviceExtension*)ExAllocatePool2(
         POOL_FLAG_NON_PAGED, sizeof(DeviceExtension), POOL_TAG);
     if (!ctx) return STATUS_INSUFFICIENT_RESOURCES;
 
@@ -28,16 +27,14 @@ NTSTATUS DeviceAdd(PKSDEVICE Device)
     return IoCreateSymbolicLink(&symLink, &Device->PhysicalDeviceObject->DeviceName);
 }
 
-extern "C"
 NTSTATUS DeviceStart(PKSDEVICE Device)
 {
     return STATUS_SUCCESS;
 }
 
-extern "C"
 void DeviceRemove(PKSDEVICE Device)
 {
-    auto ctx = (DeviceExtension*)Device->Context;
+    DeviceExtension* ctx = (DeviceExtension*)Device->Context;
     if (!ctx) return;
 
     UNICODE_STRING symLink;
@@ -48,27 +45,24 @@ void DeviceRemove(PKSDEVICE Device)
     ExFreePool(ctx);
 }
 
-extern "C"
 NTSTATUS DeviceCreate(PKSDEVICE Device, PIRP Irp)
 {
     return STATUS_SUCCESS;
 }
 
-extern "C"
 NTSTATUS DeviceClose(PKSDEVICE Device, PIRP Irp)
 {
     return STATUS_SUCCESS;
 }
 
-extern "C"
 NTSTATUS DeviceControl(PKSDEVICE Device, PIRP Irp)
 {
-    auto ctx = (DeviceExtension*)Device->Context;
-    auto irpSp = IoGetCurrentIrpStackLocation(Irp);
-    auto code = irpSp->Parameters.DeviceIoControl.IoControlCode;
+    DeviceExtension* ctx = (DeviceExtension*)Device->Context;
+    PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation(Irp);
+    ULONG code = irpSp->Parameters.DeviceIoControl.IoControlCode;
 
     if (code == IOCTL_SEND_FRAME) {
-        auto inLen = irpSp->Parameters.DeviceIoControl.InputBufferLength;
+        ULONG inLen = irpSp->Parameters.DeviceIoControl.InputBufferLength;
 
         if (inLen >= ctx->FrameSize && Irp->AssociatedIrp.SystemBuffer) {
             KIRQL irql;

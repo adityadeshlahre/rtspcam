@@ -1,4 +1,8 @@
-#pragma once
+/*
+ * CDECL on ARM64 is a no-op (single calling convention).
+ * Undefining it avoids "CDECL on data declaration" C syntax errors in ks.h.
+ */
+#define CDECL
 
 #include <ntddk.h>
 #include <ks.h>
@@ -22,7 +26,6 @@ struct DeviceExtension {
     KSPIN_LOCK          FrameLock;
 };
 
-extern "C" {
 DRIVER_INITIALIZE DriverEntry;
 NTSTATUS DeviceAdd(PKSDEVICE);
 NTSTATUS DeviceStart(PKSDEVICE);
@@ -32,4 +35,3 @@ NTSTATUS DeviceClose(PKSDEVICE, PIRP);
 NTSTATUS DeviceControl(PKSDEVICE, PIRP);
 NTSTATUS PinCreate(PKSPIN, PIRP);
 void PinProcess(PKSPIN, PKSPROCESSPIN_INDEXENTRY);
-}

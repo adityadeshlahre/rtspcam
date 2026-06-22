@@ -34,7 +34,7 @@ set LIB=%KITS%\Lib\%WDKVER%\km\arm64
 
 echo WDK: %WDKVER%
 
-cl.exe /nologo /c /kernel /GS- /Zp8 /Oi /W4 /D_ARM64_ /I"%KM%" /I"%SHARED%" /I"%UM%" driver.cpp device.cpp queue.cpp
+cl.exe /nologo /c /kernel /GS- /Zp8 /Oi /W4 /D_ARM64_ /I"%KM%" /I"%SHARED%" /I"%UM%" driver.c device.c queue.c
 if errorlevel 1 exit /b 1
 
 link.exe /nologo /machine:arm64 /driver /kernel /subsystem:native /out:rtspcam.sys /entry:GsDriverEntry /nodefaultlib /libpath:"%LIB%" ks.lib ntoskrnl.lib driver.obj device.obj queue.obj
