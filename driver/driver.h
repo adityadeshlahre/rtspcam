@@ -1,8 +1,12 @@
 /*
- * CDECL on ARM64 is a no-op (single calling convention).
- * Undefining it avoids "CDECL on data declaration" C syntax errors in ks.h.
+ * WDK 10.0.28000.0 ARM64 workarounds:
+ * - CDECL on data declarations (e.g. "extern const GUID CDECL GUID_NULL")
+ *   is valid C++ but invalid C. On ARM64 __cdecl is a no-op, so empty is safe.
+ * - BOOL is not defined by ntdef.h in kernel mode on ARM64, but ks.h
+ *   uses it as a function parameter type. Macro avoids redefinition conflict.
  */
 #define CDECL
+#define BOOL int
 
 #include <ntddk.h>
 #include <ks.h>
